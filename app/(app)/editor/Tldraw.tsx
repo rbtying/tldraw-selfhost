@@ -22,18 +22,29 @@ import {
   throttle,
 } from "tldraw";
 import "tldraw/tldraw.css";
-import { useState, useEffect, useMemo, useLayoutEffect } from "react";
+import {
+  useState,
+  useEffect,
+  useMemo,
+  useRef,
+  useLayoutEffect,
+  useContext,
+} from "react";
 import { YKeyValue } from "y-utility/y-keyvalue";
 import { useMap, useArray, useYDoc, useYjsProvider } from "@y-sweet/react";
+import FileMetadata from "./FileMetadata";
+import { DirectoryContext } from "../DirectoryProvider";
 import * as Y from "yjs";
+import invariant from "tiny-invariant";
 
 export default function TldrawWrapper({ docId }: { docId: string }) {
   const [store] = useState<TLStore>(createTLStore());
-  const [editor, setEditor] = useState<Editor | null>(null);
+  const editor = useRef<Editor | null>(null);
   const [storeWithStatus, setStoreWithStatus] = useState<TLStoreWithStatus>({
     status: "loading",
   });
 
+  const dirCtx = useContext(DirectoryContext);
   const yDoc = useYDoc();
   const room = useYjsProvider();
   const meta = useMap<SerializedSchema>("meta");
@@ -52,6 +63,12 @@ export default function TldrawWrapper({ docId }: { docId: string }) {
     const pendingChanges: HistoryEntry<TLRecord>[] = [];
 
     const dispatchUpdates = throttle(() => {
+      if (pendingChanges.length > 0) {
+        const m = dirCtx?.dirMap.get(docId);
+        invariant(m);
+        invariant(m.type === "tldraw");
+        dirCtx?.dirMap.set(docId, { ...m, updated: Date.now() });
+      }
       yDoc.transact(() => {
         pendingChanges.forEach(({ changes }) => {
           Object.values(changes.added).forEach((record) => {
@@ -291,7 +308,7 @@ export default function TldrawWrapper({ docId }: { docId: string }) {
       syncUnsubs.forEach((fn) => fn());
       syncUnsubs.length = 0;
     };
-  }, [room, yDoc, yArr, yStore, meta, store]);
+  }, [room, yDoc, yArr, yStore, meta, store, dirCtx, docId]);
 
   useEffect(() => {
     function handleStatusChange({
@@ -299,7 +316,6 @@ export default function TldrawWrapper({ docId }: { docId: string }) {
     }: {
       status: "disconnected" | "connected" | "connecting";
     }) {
-      console.log("connection status change", status);
       // If we're disconnected, set the store status to 'synced-remote' and the connection status to 'offline'
       if (status === "disconnected" || status === "connecting") {
         setStoreWithStatus({
@@ -307,9 +323,7 @@ export default function TldrawWrapper({ docId }: { docId: string }) {
           status: "synced-remote",
           connectionStatus: "offline",
         });
-        if (editor) {
-          editor.updateInstanceState({ isReadonly: true });
-        }
+        editor?.current?.updateInstanceState({ isReadonly: true });
         return;
       }
 
@@ -319,33 +333,55 @@ export default function TldrawWrapper({ docId }: { docId: string }) {
           status: "synced-remote",
           connectionStatus: "online",
         });
-        if (editor) {
-          editor.updateInstanceState({ isReadonly: false });
-        }
+        editor?.current?.updateInstanceState({ isReadonly: false });
       }
     }
 
     room.on("status", handleStatusChange);
     return () => room.off("status", handleStatusChange);
   }, [editor, room, store]);
+  const dirMeta = <FileMetadata docId={docId} />;
 
   return (
     <>
-      <div className="tldraw__editor h-full sm:mr-2 sm:rounded-lg overflow-hidden bg-white">
+      <div className="tldraw__editor h-full my-1 sm:mr-2 sm:rounded-lg overflow-hidden bg-white">
         <Tldraw
           autoFocus
           onMount={(e) => {
-            setEditor(e);
+            editor.current = e;
           }}
           store={storeWithStatus}
           components={{
             SharePanel: NameEditor,
+            TopPanel: track(() => dirMeta),
           }}
         />
       </div>
     </>
   );
 }
+
+const TopPanel = track(() => {
+  const room = useYjsProvider();
+  const [status, setStatus] = useState("connected");
+  useEffect(() => {
+    function handleStatusChange({
+      status,
+    }: {
+      status: "disconnected" | "connected" | "connecting";
+    }) {
+      setStatus(status);
+    }
+    room.on("status", handleStatusChange);
+    return () => room.off("status", handleStatusChange);
+  }, [room]);
+
+  return (
+    <>
+      <p>{status}</p>
+    </>
+  );
+});
 
 const NameEditor = track(() => {
   const editor = useEditor();
