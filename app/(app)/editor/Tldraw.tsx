@@ -3,6 +3,7 @@
 import {
   InstancePresenceRecordType,
   TLInstancePresence,
+  TLUiOverrides,
   TLRecord,
   TLStore,
   TLStoreWithStatus,
@@ -20,6 +21,7 @@ import {
   Tldraw,
   HistoryEntry,
   throttle,
+  TLUiActionsContextType,
 } from "tldraw";
 import "tldraw/tldraw.css";
 import {
@@ -36,6 +38,16 @@ import FileMetadata from "./FileMetadata";
 import { DirectoryContext } from "../DirectoryProvider";
 import * as Y from "yjs";
 import invariant from "tiny-invariant";
+
+const overrides: TLUiOverrides = {
+  actions(_editor, actions): TLUiActionsContextType {
+    return {
+      ...actions,
+      "toggle-grid": { ...actions["toggle-grid"], kbd: "x" },
+      "copy-as-png": { ...actions["copy-as-png"], kbd: "$1" },
+    };
+  },
+};
 
 export default function TldrawWrapper({ docId }: { docId: string }) {
   const [store] = useState<TLStore>(createTLStore());
@@ -347,6 +359,7 @@ export default function TldrawWrapper({ docId }: { docId: string }) {
       <div className="tldraw__editor h-full my-1 sm:mr-2 sm:rounded-lg overflow-hidden bg-white">
         <Tldraw
           autoFocus
+          overrides={overrides}
           onMount={(e) => {
             editor.current = e;
           }}
